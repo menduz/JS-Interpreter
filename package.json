@@ -8,7 +8,6 @@
     "type": "git"
   },
   "files": [
-    "acorn.js",
     "interpreter.js",
     "LICENSE",
     "README.md",
@@ -23,6 +22,7 @@
     "test": "js-interpreter-tyrant -rd --hostPath ./bin/run.js"
   },
   "dependencies": {
+    "acorn": "~5.0.3",
     "yargs": "^7.0.1"
   }
 }
