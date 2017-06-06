@@ -2812,7 +2812,7 @@ Interpreter.prototype['stepCallExpression'] = function() {
       return;
     } else if (state.func_.eval) {
       var code = state.arguments[0];
-      if (!code) {
+      if (!code) {  // eval()
         state.value = this.UNDEFINED;
       } else if (!code.isPrimitive) {
         // JS does not parse String objects:
@@ -2822,7 +2822,7 @@ Interpreter.prototype['stepCallExpression'] = function() {
         var evalInterpreter = new Interpreter(code.toString());
         evalInterpreter.stateStack[0].scope = this.getScope();
         state = {
-          node: {type: 'Eval_'},
+          node: {type: 'Eval_', start: node.start, end: node.end},
           interpreter: evalInterpreter
         };
         this.stateStack.push(state);
@@ -2883,6 +2883,8 @@ Interpreter.prototype['stepConditionalExpression'] = function() {
       this.stateStack.push({node: state.node.alternate});
       return;  // Execute 'else' block.
     }
+    // eval('1;if(false){2}') -> undefined
+    this.value = this.UNDEFINED;
   }
   this.stateStack.pop();
   if (state.node.type == 'ConditionalExpression') {
@@ -2891,12 +2893,11 @@ Interpreter.prototype['stepConditionalExpression'] = function() {
 };
 
 Interpreter.prototype['stepContinueStatement'] = function() {
-  var node = this.stateStack[this.stateStack.length - 1].node;
+  var state = this.stateStack[this.stateStack.length - 1];
   var label = null;
   if (node.label) {
-    label = node.label.name;
+    label = state.node.label.name;
   }
-  var state = this.stateStack[this.stateStack.length - 1];
   while (state &&
          state.node.type != 'CallExpression' &&
          state.node.type != 'NewExpression') {
@@ -2921,7 +2922,7 @@ Interpreter.prototype['stepDoWhileStatement'] = function() {
   }
   if (!state.test_) {
     state.test_ = true;
-    this.stateStack.push({node: state.node.test_});
+    this.stateStack.push({node: state.node.test});
   } else {
     if (!state.value.toBoolean()) {  // Done, exit loop.
       this.stateStack.pop();
@@ -2941,8 +2942,7 @@ Interpreter.prototype['stepEval_'] = function() {
   var state = this.stateStack[this.stateStack.length - 1];
   if (!state.interpreter.step()) {
     this.stateStack.pop();
-    this.stateStack[this.stateStack.length - 1].value =
-        state.interpreter.value || this.UNDEFINED;
+    this.stateStack[this.stateStack.length - 1].value = state.interpreter.value;
   }
 };
 
@@ -2953,7 +2953,7 @@ Interpreter.prototype['stepExpressionStatement'] = function() {
     this.stateStack.push({node: state.node.expression});
   } else {
     this.stateStack.pop();
-    // Save this value to the interpreter for use as a return value if
+    // Save this value to interpreter.value for use as a return value if
     // this code is inside an eval function.
     this.value = state.value;
   }
@@ -3044,6 +3044,7 @@ Interpreter.prototype['stepForStatement'] = function() {
 };
 
 Interpreter.prototype['stepFunctionDeclaration'] = function() {
+  // This was found and handled when the scope was populated.
   this.stateStack.pop();
 };
 
