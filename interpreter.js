@@ -2540,7 +2540,7 @@ Interpreter.prototype.executeException = function(error) {
  *     Name of variable or object/propname tuple.
  * @private
  */
-Interpreter.prototype.pushGetter_ = function(func, funcThis) {
+Interpreter.prototype.pushGetter_ = function(func, left) {
   // Normally 'this' will be specified as the object component (o.x).
   // Sometimes 'this' is explicitly provided (o).
   var funcThis = (left instanceof Array) ? left[0] : left;
@@ -2559,7 +2559,7 @@ Interpreter.prototype.pushGetter_ = function(func, funcThis) {
  * @param {!Interpreter.Object} func Function to execute.
  * @param {!Interpreter.Object|!Array} left
  *     Name of variable or object/propname tuple.
- * @param {!Interpreter.Object} value Value to set.
+ * @param {!Interpreter.Object|Interpreter.Primitive} value Value to set.
  * @private
  */
 Interpreter.prototype.pushSetter_ = function(func, left, value) {
@@ -2626,7 +2626,8 @@ Interpreter.prototype['stepAssignmentExpression'] = function() {
         // Clear the getter flag and call the getter function.
         state.leftValue_.isGetter = false;
         state.doneGetter_ = true;
-        this.pushGetter_(state.leftValue_, state.leftSide_);
+        var func = /** @type {!Interpreter.Object} */ (state.leftValue_);
+        this.pushGetter_(func, state.leftSide_);
         return;
       }
     }
@@ -2999,7 +3000,7 @@ Interpreter.prototype['stepConditionalExpression'] = function() {
 Interpreter.prototype['stepContinueStatement'] = function() {
   var state = this.stateStack[this.stateStack.length - 1];
   var label = null;
-  if (node.label) {
+  if (state.node.label) {
     label = state.node.label.name;
   }
   while (state &&
@@ -3186,7 +3187,8 @@ Interpreter.prototype['stepIdentifier'] = function() {
     while (!this.hasProperty(scope, nameStr)) {
       scope = scope.parentScope;
     }
-    this.pushGetter_(value, this.global);
+    var func = /** @type {!Interpreter.Object} */ (value);
+    this.pushGetter_(func, this.global);
   } else {
     this.stateStack[this.stateStack.length - 1].value = value;
   }
@@ -3263,7 +3265,8 @@ Interpreter.prototype['stepMemberExpression'] = function() {
       if (value.isGetter) {
         // Clear the getter flag and call the getter function.
         value.isGetter = false;
-        this.pushGetter_(value, state.object_);
+        var func = /** @type {!Interpreter.Object} */ (value);
+        this.pushGetter_(func, state.object_);
       } else {
         this.stateStack[this.stateStack.length - 1].value = value;
       }
@@ -3529,7 +3532,8 @@ Interpreter.prototype['stepUpdateExpression'] = function() {
       // Clear the getter flag and call the getter function.
       state.leftValue_.isGetter = false;
       state.doneGetter_ = true;
-      this.pushGetter_(state.leftValue_, state.leftSide_);
+      var func = /** @type {!Interpreter.Object} */ (state.leftValue_);
+      this.pushGetter_(func, state.leftSide_);
       return;
     }
   }
