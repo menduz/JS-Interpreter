@@ -3580,6 +3580,7 @@ Interpreter.prototype['stepSwitchStatement'] = function() {
 };
 
 Interpreter.prototype['stepThisExpression'] = function() {
+  var stack = this.stateStack;
   stack.pop();
   for (var i = stack.length - 1; i >= 0; i--) {
     if (stack[i].thisExpression) {
@@ -3603,6 +3604,7 @@ Interpreter.prototype['stepThrowStatement'] = function() {
 };
 
 Interpreter.prototype['stepTryStatement'] = function() {
+  var stack = this.stateStack;
   var state = stack[stack.length - 1];
   var node = state.node;
   if (!state.doneBlock_) {
