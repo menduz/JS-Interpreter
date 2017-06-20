@@ -2770,8 +2770,11 @@ Interpreter.prototype['stepBinaryExpression'] = function() {
     if (!this.isa(rightSide, this.FUNCTION)) {
       this.throwException(this.TYPE_ERROR,
           'Expecting a function in instanceof check');
+    } else if (leftSide.isPrimitive) {
+      value = this.FALSE;
+    } else {
+      value = this.isa(leftSide, rightSide);
     }
-    value = this.isa(leftSide, rightSide);
   } else {
     var leftValue = leftSide.toNumber();
     var rightValue = rightSide.toNumber();
