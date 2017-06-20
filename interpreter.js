@@ -1341,7 +1341,7 @@ Interpreter.prototype.initDate = function(scope) {
   var thisInterpreter = this;
   var wrapper;
   // Date constructor.
-  wrapper = function(a, b, c, d, e, f, h) {
+  wrapper = function(value, var_args) {
     if (thisInterpreter.calledWithNew()) {
       // Called as new Date().
       var newDate = this;
@@ -1352,9 +1352,9 @@ Interpreter.prototype.initDate = function(scope) {
     }
     if (!arguments.length) {
       newDate.data = new Date();
-    } else if (arguments.length == 1 && (a.type == 'string' ||
-        thisInterpreter.isa(a, thisInterpreter.STRING))) {
-      newDate.data = new Date(a.toString());
+    } else if (arguments.length == 1 && (value.type == 'string' ||
+        thisInterpreter.isa(value, thisInterpreter.STRING))) {
+      newDate.data = new Date(value.toString());
     } else {
       var args = [null];
       for (var i = 0; i < arguments.length; i++) {
@@ -1381,7 +1381,7 @@ Interpreter.prototype.initDate = function(scope) {
   this.setProperty(this.DATE, 'parse', this.createNativeFunction(wrapper, false),
                    Interpreter.NONENUMERABLE_DESCRIPTOR);
 
-  wrapper = function(a, b, c, d, e, f, h) {
+  wrapper = function(var_args) {
     var args = [];
     for (var i = 0; i < arguments.length; i++) {
       args[i] = arguments[i] ? arguments[i].toNumber() : undefined;
@@ -2871,16 +2871,18 @@ Interpreter.prototype['stepBlockStatement'] = function() {
 
 Interpreter.prototype['stepBreakStatement'] = function() {
   var state = this.stateStack.pop();
-  var node = state.node;
   var label = null;
-  if (node.label) {
-    label = node.label.name;
+  if (state.node.label) {
+    label = state.node.label.name;
   }
-  state = this.stateStack.pop();
   while (state &&
          state.node.type != 'CallExpression' &&
          state.node.type != 'NewExpression') {
-    if (label ? label == state.label : (state.isLoop || state.isSwitch)) {
+    if (label) {
+      if (state.labels && state.labels.indexOf(label) != -1) {
+        return;
+      }
+    } else if (state.isLoop || state.isSwitch) {
       return;
     }
     state = this.stateStack.pop();
@@ -3073,16 +3075,17 @@ Interpreter.prototype['stepConditionalExpression'] = function() {
 };
 
 Interpreter.prototype['stepContinueStatement'] = function() {
-  var state = this.stateStack[this.stateStack.length - 1];
+  var state = this.stateStack.pop();
   var label = null;
   if (state.node.label) {
     label = state.node.label.name;
   }
+  state = this.stateStack[this.stateStack.length - 1];
   while (state &&
          state.node.type != 'CallExpression' &&
          state.node.type != 'NewExpression') {
     if (state.isLoop) {
-      if (!label || (label == state.label)) {
+      if (!label || (state.labels && state.labels.indexOf(label) != -1)) {
         return;
       }
     }
@@ -3273,14 +3276,13 @@ Interpreter.prototype['stepIfStatement'] =
     Interpreter.prototype['stepConditionalExpression'];
 
 Interpreter.prototype['stepLabeledStatement'] = function() {
-  var state = this.stateStack[this.stateStack.length - 1];
-  if (!state.label) {
-    // No need to hit this node again on the way back up the stack.
-    // Unless there are two or more labels on the same statement.
-    this.stateStack.pop();
-  }
+  // No need to hit this node again on the way back up the stack.
+  var state = this.stateStack.pop();
+  // Note that a statement might have multiple labels,
+  var labels = state.labels || [];
+  labels.push(state.node.label.name);
   this.stateStack.push({node: state.node.body,
-                        label: state.node.label.name});
+                        labels: labels});
 };
 
 Interpreter.prototype['stepLiteral'] = function() {
@@ -3436,7 +3438,7 @@ Interpreter.prototype['stepReturnStatement'] = function() {
       if (state.node.type != 'TryStatement') {
         this.stateStack.splice(i, 1);
       }
-      i--
+      i--;
       if (i < 0) {
         // Syntax error, do not allow this error to be trapped.
         throw SyntaxError('Illegal return statement');
