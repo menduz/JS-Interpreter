@@ -1670,7 +1670,7 @@ Interpreter.prototype.comp = function(a, b) {
  */
 Interpreter.prototype.arrayIndex = function(n) {
   n = Number(n);
-  if (!isFinite(n) || n != Math.floor(n) || n < 0) {
+  if (!isFinite(n) || n != Math.floor(n) || n < 0 || n >= Math.pow(2, 32)) {
     return NaN;
   }
   return n;
