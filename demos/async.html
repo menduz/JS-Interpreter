@@ -29,10 +29,10 @@
       };
       interpreter.setProperty(scope, 'getXhr',
           interpreter.createAsyncFunction(wrapper));
-    };
+    }
 
     function parseButton() {
-      var code = document.getElementById('code').value
+      var code = document.getElementById('code').value;
       myInterpreter = new Interpreter(code, initAlert);
       disable('');
     }
@@ -73,7 +73,7 @@
     }
 
     function createSelection(start, end) {
-      var field = document.getElementById('code')
+      var field = document.getElementById('code');
       if (field.createTextRange) {
         var selRange = field.createTextRange();
         selRange.collapse(true);
