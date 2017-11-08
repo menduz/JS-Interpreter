@@ -1110,7 +1110,7 @@ Interpreter.prototype.initArray = function(scope) {
           "changes++;",
         "}",
       "}",
-      "if (changes <= 1) break;",
+      "if (!changes) break;",
     "}",
     "return this;",
   "}",
