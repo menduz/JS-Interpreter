@@ -141,6 +141,13 @@ Interpreter.READONLY_NONENUMERABLE_DESCRIPTOR = {
   writable: false
 };
 
+/**
+ * Unique symbol for indicating that a step has encountered an error, has
+ * added it to the stack, and will be thrown within the user's program.
+ * When STEP_ERROR is thrown in the JS-Interpreter, the error can be ignored.
+ */
+Interpreter.STEP_ERROR = {};
+
 // For cycle detection in array to string and error conversion;
 // see spec bug github.com/tc39/ecma262/issues/289
 // Since this is for atomic actions only, it can be a class property.
@@ -185,7 +192,15 @@ Interpreter.prototype.step = function() {
   } else if (this.paused_) {
     return true;
   }
-  this.functionMap_[type]();
+  try {
+    this.functionMap_[type]();
+  } catch (e) {
+    // Eat any step errors.  They have been thrown on the stack.
+    if (e !== Interpreter.STEP_ERROR) {
+      // Uh oh.  This is a real error in the JS-Interpreter.  Rethrow.
+      throw e;
+    }
+  }
   if (!node['end']) {
     // This is polyfill code.  Keep executing until we arrive at user code.
     return this.step();
@@ -254,11 +269,11 @@ Interpreter.prototype.initGlobalScope = function(scope) {
   this.setProperty(scope, 'isFinite',
                    this.createNativeFunction(wrapper, false));
 
+  // parseFloat and parseInt === Number.parseFloat and Number.parseInt
   this.setProperty(scope, 'parseFloat',
-                   this.getProperty(this.NUMBER, 'parseFloat'));
-
+      this.getProperty(this.NUMBER, 'parseFloat'));
   this.setProperty(scope, 'parseInt',
-                   this.getProperty(this.NUMBER, 'parseInt'));
+      this.getProperty(this.NUMBER, 'parseInt'));
 
   var func = this.createObject(this.FUNCTION);
   func.eval = true;
@@ -322,7 +337,6 @@ Interpreter.prototype.initFunction = function(scope) {
       if (!name.match(identifierRegexp)) {
         thisInterpreter.throwException(thisInterpreter.SYNTAX_ERROR,
             'Invalid function argument: ' + name);
-        return;
       }
       args.push(name);
     }
@@ -338,7 +352,6 @@ Interpreter.prototype.initFunction = function(scope) {
       // Function('a', 'return a + 6;}; {alert(1);');
       thisInterpreter.throwException(thisInterpreter.SYNTAX_ERROR,
           'Invalid code in function body.');
-      return;
     }
     newFunc.node = ast['body'][0]['expression']['right'];
     thisInterpreter.setProperty(newFunc, 'length',
@@ -490,14 +503,22 @@ Interpreter.prototype.initObject = function(scope) {
   this.OBJECT = this.createNativeFunction(wrapper, true);
   this.setProperty(scope, 'Object', this.OBJECT);
 
+  /**
+   * Checks if the provided value is undefined, UNDEFINED or NULL.
+   * If so, then throw an error in the call stack.
+   * @param {*} value Value to check.
+   */
+  var throwIfNullUndefined = function(value) {
+    if (!value || value == thisInterpreter.UNDEFINED ||
+                value == thisInterpreter.NULL) {
+      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
+          "Cannot convert '" + value + "' to object");
+    }
+  };
+
   // Static methods on Object.
   wrapper = function(obj) {
-    if (!obj || obj == thisInterpreter.UNDEFINED ||
-                obj == thisInterpreter.NULL) {
-      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
-          "Cannot convert '" + obj + "' to object");
-      return;
-    }
+    throwIfNullUndefined(obj);
     var props = obj.isPrimitive ? obj.data : obj.properties;
     return thisInterpreter.nativeToPseudo(Object.getOwnPropertyNames(props));
   };
@@ -528,7 +549,6 @@ Interpreter.prototype.initObject = function(scope) {
     if (proto.isPrimitive) {
       thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
           'Object prototype may only be an Object or null');
-      return;
     }
     return thisInterpreter.createObjectProto(proto);
   };
@@ -555,12 +575,10 @@ Interpreter.prototype.initObject = function(scope) {
     if (!(descriptor instanceof Interpreter.Object)) {
       thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
           'Property description must be an object.');
-      return;
     }
     if (!obj.properties[prop] && obj.preventExtensions) {
       thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
           "Can't define property '" + prop + "', object is not extensible");
-      return;
     }
     var value = thisInterpreter.getProperty(descriptor, 'value');
     if (value == thisInterpreter.UNDEFINED) {
@@ -601,12 +619,7 @@ Interpreter.prototype.initObject = function(scope) {
 "");
 
   wrapper = function(obj, prop) {
-    if (!obj || obj == thisInterpreter.UNDEFINED ||
-                obj == thisInterpreter.NULL) {
-      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
-          "Cannot convert '" + obj + "' to object");
-      return;
-    }
+    throwIfNullUndefined(obj);
     prop = (prop || thisInterpreter.UNDEFINED).toString();
     if (!(prop in obj.properties)) {
       return thisInterpreter.UNDEFINED;
@@ -638,12 +651,7 @@ Interpreter.prototype.initObject = function(scope) {
       Interpreter.NONENUMERABLE_DESCRIPTOR);
 
   wrapper = function(obj) {
-    if (!obj || obj == thisInterpreter.UNDEFINED ||
-                obj == thisInterpreter.NULL) {
-      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
-          "Cannot convert '" + obj + "' to object");
-      return;
-    }
+    throwIfNullUndefined(obj);
     return obj.proto || thisInterpreter.NULL;
   };
   this.setProperty(this.OBJECT, 'getPrototypeOf',
@@ -684,11 +692,7 @@ Interpreter.prototype.initObject = function(scope) {
   this.setNativeFunctionPrototype(this.OBJECT, 'valueOf', wrapper);
 
   wrapper = function(prop) {
-    if (this == thisInterpreter.UNDEFINED || this == thisInterpreter.NULL) {
-      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
-          "Cannot convert '" + this + "' to object");
-      return;
-    }
+    throwIfNullUndefined(this);
     prop = (prop || thisInterpreter.UNDEFINED).toString();
     return (prop in this.properties) ?
         thisInterpreter.TRUE : thisInterpreter.FALSE;
@@ -696,11 +700,7 @@ Interpreter.prototype.initObject = function(scope) {
   this.setNativeFunctionPrototype(this.OBJECT, 'hasOwnProperty', wrapper);
 
   wrapper = function(prop) {
-    if (this == thisInterpreter.UNDEFINED || this == thisInterpreter.NULL) {
-      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
-          "Cannot convert '" + this + "' to object");
-      return;
-    }
+    throwIfNullUndefined(this);
     prop = (prop || thisInterpreter.UNDEFINED).toString();
     var enumerable = prop in this.properties && !this.notEnumerable[prop];
     return thisInterpreter.createPrimitive(enumerable);
@@ -1616,7 +1616,6 @@ Interpreter.prototype.initJSON = function(scope) {
       var nativeObj = JSON.parse(text.toString());
     } catch (e) {
       thisInterpreter.throwException(thisInterpreter.SYNTAX_ERROR, e.message);
-      return;
     }
     return thisInterpreter.nativeToPseudo(nativeObj);
   };
@@ -1628,7 +1627,6 @@ Interpreter.prototype.initJSON = function(scope) {
       var str = JSON.stringify(nativeObj);
     } catch (e) {
       thisInterpreter.throwException(thisInterpreter.TYPE_ERROR, e.message);
-      return;
     }
     return thisInterpreter.createPrimitive(str);
   };
@@ -2215,15 +2213,14 @@ Interpreter.prototype.pseudoToNative = function(pseudoObj, opt_cycles) {
  * Fetch a property value from a data object.
  * @param {!Interpreter.Object|!Interpreter.Primitive} obj Data object.
  * @param {*} name Name of property.
- * @return {!Interpreter.Object|!Interpreter.Primitive|null} Property value
- *     (may be UNDEFINED), or null if an error was thrown and will be caught.
+ * @return {!Interpreter.Object|!Interpreter.Primitive} Property value
+ *     (may be UNDEFINED).
  */
 Interpreter.prototype.getProperty = function(obj, name) {
   name = name.toString();
   if (obj == this.UNDEFINED || obj == this.NULL) {
     this.throwException(this.TYPE_ERROR,
                         "Cannot read property '" + name + "' of " + obj);
-    return null;
   }
   if (name == 'length') {
     // Special cases for magic length property.
@@ -2520,8 +2517,7 @@ Interpreter.prototype.createSpecialScope = function(parentScope, opt_scope) {
 /**
  * Retrieves a value from the scope chain.
  * @param {!Interpreter.Object|!Interpreter.Primitive} name Name of variable.
- * @return {!Interpreter.Object|!Interpreter.Primitive|null} The value
- *     or null if an error was thrown and will be caught.
+ * @return {!Interpreter.Object|!Interpreter.Primitive} The value.
  */
 Interpreter.prototype.getValueFromScope = function(name) {
   var scope = this.getScope();
@@ -2544,7 +2540,6 @@ Interpreter.prototype.getValueFromScope = function(name) {
     return this.UNDEFINED;
   }
   this.throwException(this.REFERENCE_ERROR, nameStr + ' is not defined');
-  return null;
 };
 
 /**
@@ -2655,8 +2650,7 @@ Interpreter.prototype.calledWithNew = function() {
  * Gets a value from the scope chain or from an object property.
  * @param {!Interpreter.Object|!Interpreter.Primitive|!Array} left
  *     Name of variable or object/propname tuple.
- * @return {!Interpreter.Object|!Interpreter.Primitive|null} Value
- *     or null if an error was thrown and will be caught.
+ * @return {!Interpreter.Object|!Interpreter.Primitive} Value.
  */
 Interpreter.prototype.getValue = function(left) {
   if (left instanceof Array) {
@@ -2704,6 +2698,8 @@ Interpreter.prototype.throwException = function(errorClass, opt_message) {
         Interpreter.NONENUMERABLE_DESCRIPTOR);
   }
   this.executeException(error);
+  // Abort anything related to the current step.
+  throw Interpreter.STEP_ERROR;
 };
 
 /**
@@ -3067,12 +3063,9 @@ Interpreter.prototype['stepCallExpression'] = function() {
         state.func_ = null;
         return;
       }
-      if (!state.func_) {
-        return;  // Thrown error, but trapped.
-      } else if (state.func_.type != 'function') {
+      if (state.func_.type != 'function') {
         this.throwException(this.TYPE_ERROR,
             (state.func_ && state.func_.type) + ' is not a function');
-        return;
       }
     }
     // Determine value of 'this' in function.
@@ -3080,7 +3073,6 @@ Interpreter.prototype['stepCallExpression'] = function() {
       if (state.func_.illegalConstructor) {
         // Illegal: new escape();
         this.throwException(this.TYPE_ERROR, 'function is not a constructor');
-        return;
       }
       // Constructor, 'this' is new object.
       state.funcThis_ = this.createObject(state.func_);
@@ -3551,13 +3543,6 @@ Interpreter.prototype['stepMemberExpression'] = function() {
       stack[stack.length - 1].value = [state.object_, state.value];
     } else {
       var value = this.getProperty(state.object_, state.value);
-      if (!value) {
-        stack.push({});
-        this.throwException(this.TYPE_ERROR,
-            "Cannot read property '" + state.value + "' of " +
-            state.object_.toString());
-        return;
-      }
       if (value.isGetter) {
         // Clear the getter flag and call the getter function.
         value.isGetter = false;
@@ -3818,7 +3803,6 @@ Interpreter.prototype['stepUnaryExpression'] = function() {
     if (!value && this.getScope().strict) {
       this.throwException(this.TYPE_ERROR, "Cannot delete property '" +
                           name + "' of '" + obj + "'");
-      return;
     }
   } else if (node['operator'] == 'typeof') {
     value = value.type;
@@ -3847,9 +3831,6 @@ Interpreter.prototype['stepUpdateExpression'] = function() {
   }
   if (!state.doneGetter_) {
     state.leftValue_ = this.getValue(state.leftSide_);
-    if (!state.leftValue_) {
-      return;  // Thrown error, but trapped.
-    }
     if (state.leftValue_.isGetter) {
       // Clear the getter flag and call the getter function.
       state.leftValue_.isGetter = false;
