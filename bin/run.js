@@ -27,70 +27,31 @@ const argv = yargs
 
   .nargs('interpreter', 1)
   .describe('interpreter', 'path to interpreter module to use')
+  .describe('forked', 'run this as a forked process').argv;
 
-  .demandCommand(1)
-  .argv;
+const buildInterpreter = require('./interpreter-builder.js');
+const Interpreter = require(argv.interpreter
+  ? path.resolve(argv.interpreter)
+  : '../interpreter');
 
-
-const Interpreter = require(argv.interpreter ? path.resolve(argv.interpreter) : '../interpreter');
-
-function createConsoleObject(interpreter) {
-  const myConsole = interpreter.createObject(interpreter.OBJECT);
-  // add log function to console object
-  function myLog() {
-    for (let j = 0; j < arguments.length; j++) {
-      arguments[j] = arguments[j].toString();
+if (argv.forked) {
+  process.on('message', code => {
+    try {
+      buildInterpreter(Interpreter, code, {
+        log(...args) {
+          process.send({ status: 'log', message: args.join(' ') + '\n' });
+        },
+      }).run();
+      process.send({ status: 'done' });
+    } catch (e) {
+      process.send({ status: 'error', message: e.message || '' });
     }
-    return interpreter.createPrimitive(console.log.apply(console, arguments));
+  });
+} else {
+  if (argv._.length < 1) {
+    console.log('you must specify a file to execute.');
+    process.exit(1);
   }
-  interpreter.setProperty(
-    myConsole,
-    'log',
-    interpreter.createNativeFunction(myLog),
-    Interpreter.NONENUMERABLE_DESCRIPTOR
-  );
-  return myConsole;
+  const code = fs.readFileSync(argv._[0], 'utf-8');
+  buildInterpreter(Interpreter, code).run();
 }
-
-function createVMObject(interpreter) {
-  const vm = interpreter.createObject(interpreter.OBJECT);
-  function runInContext(source, context) {
-    const interp = new Interpreter(source.toString(), function(interpreter, scope) {
-      initInterpreterScope(interpreter, scope);
-      for (let key in context.properties) {
-        interpreter.setProperty(scope, key, context.properties[key]);
-      }
-    });
-    interp.run();
-  }
-
-  interpreter.setProperty(
-    vm,
-    'runInContext',
-    interpreter.createNativeFunction(runInContext),
-    Interpreter.NONENUMERABLE_DESCRIPTOR
-  );
-  return vm;
-}
-
-// adds "native" global properties to the interpreter's scope
-function initInterpreterScope(interpreter, scope) {
-
-  // add native console object to global interpreter scope
-  interpreter.setProperty(
-    scope,
-    'console',
-    createConsoleObject(interpreter)
-  );
-
-  // add vm object
-  interpreter.setProperty(
-    scope,
-    'vm',
-    createVMObject(interpreter)
-  );
-
-}
-
-const code = fs.readFileSync(argv._[0], 'utf-8');
-new Interpreter(code, initInterpreterScope).run();
