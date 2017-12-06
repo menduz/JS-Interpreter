@@ -49,7 +49,7 @@ var Interpreter = module.exports = function(code, opt_initFunc) {
   var stepMatch = /^step([A-Z]\w*)$/;
   var m;
   for (var methodName in this) {
-    if (m = methodName.match(stepMatch)) {
+    if ((m = methodName.match(stepMatch))) {
       this.functionMap_[m[1]] = this[methodName].bind(this);
     }
   }
@@ -577,6 +577,10 @@ Interpreter.prototype.initObject = function(scope) {
 
   wrapper = function(obj, prop, descriptor) {
     prop = (prop || thisInterpreter.UNDEFINED).toString();
+    if (!obj || obj.isPrimitive) {
+      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
+          'Object.defineProperty called on non-object');
+    }
     if (!(descriptor instanceof Interpreter.Object)) {
       thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
           'Property description must be an object.');
@@ -626,7 +630,10 @@ Interpreter.prototype.initObject = function(scope) {
 "");
 
   wrapper = function(obj, prop) {
-    throwIfNullUndefined(obj);
+    if (!obj || obj.isPrimitive) {
+      thisInterpreter.throwException(thisInterpreter.TYPE_ERROR,
+          'Object.getOwnPropertyDescriptor called on non-object');
+    }
     prop = (prop || thisInterpreter.UNDEFINED).toString();
     if (!(prop in obj.properties)) {
       return thisInterpreter.UNDEFINED;
@@ -2238,7 +2245,7 @@ Interpreter.prototype.pseudoToNative = function(pseudoObj, opt_cycles) {
  *     (may be UNDEFINED).
  */
 Interpreter.prototype.getProperty = function(obj, name) {
-  name = name.toString();
+  name += '';
   if (obj == this.UNDEFINED || obj == this.NULL) {
     this.throwException(this.TYPE_ERROR,
                         "Cannot read property '" + name + "' of " + obj);
@@ -2282,7 +2289,7 @@ Interpreter.prototype.getProperty = function(obj, name) {
  * @return {boolean} True if property exists.
  */
 Interpreter.prototype.hasProperty = function(obj, name) {
-  name = name.toString();
+  name += '';
   if (obj.isPrimitive) {
     throw TypeError('Primitive data type has no properties');
   }
@@ -2315,7 +2322,7 @@ Interpreter.prototype.hasProperty = function(obj, name) {
  *     needs to be called, otherwise undefined.
  */
 Interpreter.prototype.setProperty = function(obj, name, value, opt_descriptor) {
-  name = name.toString();
+  name += '';
   if (opt_descriptor && obj.notConfigurable[name]) {
     this.throwException(this.TYPE_ERROR, 'Cannot redefine property: ' + name);
   }
@@ -2463,8 +2470,8 @@ Interpreter.prototype.setNativeFunctionPrototype =
  * @return {boolean} True if deleted, false if undeletable.
  */
 Interpreter.prototype.deleteProperty = function(obj, name) {
-  name = name.toString();
-  if (obj.isPrimitive || obj.notWritable[name]) {
+  name += '';
+  if (!obj || obj.isPrimitive || obj.notWritable[name]) {
     return false;
   }
   if (name == 'length' && this.isa(obj, this.ARRAY)) {
@@ -2537,22 +2544,22 @@ Interpreter.prototype.createSpecialScope = function(parentScope, opt_scope) {
 
 /**
  * Retrieves a value from the scope chain.
- * @param {!Interpreter.Object|!Interpreter.Primitive} name Name of variable.
+ * @param {*} name Name of variable.
  * @return {!Interpreter.Object|!Interpreter.Primitive} The value.
  */
 Interpreter.prototype.getValueFromScope = function(name) {
   var scope = this.getScope();
-  var nameStr = name.toString();
+  name += '';
   while (scope && scope != this.global) {
-    if (nameStr in scope.properties) {
-      return scope.properties[nameStr];
+    if (name in scope.properties) {
+      return scope.properties[name];
     }
     scope = scope.parentScope;
   }
   // The root scope is also an object which has inherited properties and
   // could also have getters.
-  if (scope == this.global && this.hasProperty(scope, nameStr)) {
-    return this.getProperty(scope, nameStr);
+  if (scope == this.global && this.hasProperty(scope, name)) {
+    return this.getProperty(scope, name);
   }
   // Typeof operator is unique: it can safely look at non-defined variables.
   var prevNode = this.stateStack[this.stateStack.length - 1].node;
@@ -2560,22 +2567,22 @@ Interpreter.prototype.getValueFromScope = function(name) {
       prevNode['operator'] == 'typeof') {
     return this.UNDEFINED;
   }
-  this.throwException(this.REFERENCE_ERROR, nameStr + ' is not defined');
+  this.throwException(this.REFERENCE_ERROR, name + ' is not defined');
 };
 
 /**
  * Sets a value to the current scope.
- * @param {!Interpreter.Object|!Interpreter.Primitive} name Name of variable.
+ * @param {*} name Name of variable.
  * @param {!Interpreter.Object|!Interpreter.Primitive} value Value.
  * @return {!Interpreter.Object|undefined} Returns a setter function if one
  *     needs to be called, otherwise undefined.
  */
 Interpreter.prototype.setValueToScope = function(name, value) {
   var scope = this.getScope();
-  var nameStr = name.toString();
+  name += '';
   while (scope && scope != this.global) {
-    if (nameStr in scope.properties) {
-      scope.properties[nameStr] = value;
+    if (name in scope.properties) {
+      scope.properties[name] = value;
       return undefined;
     }
     scope = scope.parentScope;
@@ -2583,10 +2590,10 @@ Interpreter.prototype.setValueToScope = function(name, value) {
   // The root scope is also an object which has readonly properties and
   // could also have setters.
   if (scope == this.global &&
-      (!scope.strict || this.hasProperty(scope, nameStr))) {
-    return this.setProperty(scope, nameStr, value);
+      (!scope.strict || this.hasProperty(scope, name))) {
+    return this.setProperty(scope, name, value);
   }
-  this.throwException(this.REFERENCE_ERROR, nameStr + ' is not defined');
+  this.throwException(this.REFERENCE_ERROR, name + ' is not defined');
 };
 
 /**
@@ -2669,35 +2676,33 @@ Interpreter.prototype.calledWithNew = function() {
 
 /**
  * Gets a value from the scope chain or from an object property.
- * @param {!Interpreter.Object|!Interpreter.Primitive|!Array} left
- *     Name of variable or object/propname tuple.
+ * @param {!Array} left Name of variable or object/propname tuple.
  * @return {!Interpreter.Object|!Interpreter.Primitive} Value.
  */
 Interpreter.prototype.getValue = function(left) {
-  if (Array.isArray(left)) {  // This is a components tuple (foo.bar).
-    var obj = left[0];
-    var prop = left[1];
-    return this.getProperty(obj, prop);
+  if (left[0]) {
+    // An obj/prop components tuple (foo.bar).
+    return this.getProperty(left[0], left[1]);
   } else {
-    return this.getValueFromScope(left);
+    // A null/varname variable lookup.
+    return this.getValueFromScope(left[1]);
   }
 };
 
 /**
  * Sets a value to the scope chain or to an object property.
- * @param {!Interpreter.Object|!Interpreter.Primitive|!Array} left
- *     Name of variable or object/propname tuple.
+ * @param {!Array} left Name of variable or object/propname tuple.
  * @param {!Interpreter.Object|!Interpreter.Primitive} value Value.
  * @return {!Interpreter.Object|undefined} Returns a setter function if one
  *     needs to be called, otherwise undefined.
  */
 Interpreter.prototype.setValue = function(left, value) {
-  if (Array.isArray(left)) {  // This is a components tuple (foo.bar).
-    var obj = left[0];
-    var prop = left[1];
-    return this.setProperty(obj, prop, value);
+  if (left[0]) {
+    // An obj/prop components tuple (foo.bar)..
+    return this.setProperty(left[0], left[1], value);
   } else {
-    return this.setValueToScope(left, value);
+    // A null/varname variable lookup.
+    return this.setValueToScope(left[1], value);
   }
 };
 
@@ -3159,8 +3164,7 @@ Interpreter.prototype['stepCallExpression'] = function() {
       stack.push(funcState);
       state.value = this.UNDEFINED;  // Default value if no explicit return.
     } else if (func.nativeFunc) {
-      state.value =
-          func.nativeFunc.apply(state.funcThis_, state.arguments_);
+      state.value = func.nativeFunc.apply(state.funcThis_, state.arguments_);
     } else if (func.asyncFunc) {
       var thisInterpreter = this;
       var callback = function(value) {
@@ -3410,7 +3414,7 @@ Interpreter.prototype['stepForInStatement'] = function() {
     var left = node['left'];
     if (left['type'] == 'VariableDeclaration') {
       // Inline variable declaration: for (var x in y)
-      state.variable_ = left['declarations'][0]['id']['name'];
+      state.variable_ = [null, left['declarations'][0]['id']['name']];
     } else {
       // Arbitrary left side: for (foo().bar in y)
       state.variable_ = null;
@@ -3492,7 +3496,7 @@ Interpreter.prototype['stepIdentifier'] = function() {
   var state = stack.pop();
   var nameStr = state.node['name'];
   var name = this.createPrimitive(nameStr);
-  var value = state.components ? name : this.getValueFromScope(name);
+  var value = state.components ? [null, name] : this.getValueFromScope(name);
   // An identifier could be a getter if it's a property on the global object.
   if (value && value.isGetter) {
     // Clear the getter flag and call the getter function.
@@ -3515,7 +3519,7 @@ Interpreter.prototype['stepLabeledStatement'] = function() {
   var stack = this.stateStack;
   // No need to hit this node again on the way back up the stack.
   var state = stack.pop();
-  // Note that a statement might have multiple labels,
+  // Note that a statement might have multiple labels.
   var labels = state.labels || [];
   labels.push(state.node['label']['name']);
   stack.push({node: state.node['body'], labels: labels});
@@ -3560,24 +3564,34 @@ Interpreter.prototype['stepMemberExpression'] = function() {
   if (!state.doneObject_) {
     state.doneObject_ = true;
     stack.push({node: node['object']});
-  } else if (!state.doneProperty_) {
-    state.doneProperty_ = true;
+    return;
+  }
+  var propName;
+  if (!node['computed']) {
     state.object_ = state.value;
-    stack.push({node: node['property'], components: !node['computed']});
+    // obj.foo -- Just access 'foo' directly.
+    propName = node['property']['name'];
+  } else if (!state.doneProperty_) {
+    state.object_ = state.value;
+    // obj[foo] -- Compute value of 'foo'.
+    state.doneProperty_ = true;
+    stack.push({node: node['property']});
+    return;
   } else {
-    stack.pop();
-    if (state.components) {
-      stack[stack.length - 1].value = [state.object_, state.value];
+    propName = state.value;
+  }
+  stack.pop();
+  if (state.components) {
+    stack[stack.length - 1].value = [state.object_, propName];
+  } else {
+    var value = this.getProperty(state.object_, propName);
+    if (value.isGetter) {
+      // Clear the getter flag and call the getter function.
+      value.isGetter = false;
+      var func = /** @type {!Interpreter.Object} */ (value);
+      this.pushGetter_(func, state.object_);
     } else {
-      var value = this.getProperty(state.object_, state.value);
-      if (value.isGetter) {
-        // Clear the getter flag and call the getter function.
-        value.isGetter = false;
-        var func = /** @type {!Interpreter.Object} */ (value);
-        this.pushGetter_(func, state.object_);
-      } else {
-        stack[stack.length - 1].value = value;
-      }
+      stack[stack.length - 1].value = value;
     }
   }
 };
@@ -3588,52 +3602,53 @@ Interpreter.prototype['stepNewExpression'] =
 Interpreter.prototype['stepObjectExpression'] = function() {
   var stack = this.stateStack;
   var state = stack[stack.length - 1];
-  var valueToggle = state.valueToggle_;
   var n = state.n_ || 0;
-  if (!state.object_) {
-    state.object_ = this.createObject(this.OBJECT);
-    state.properties = Object.create(null);
-  } else {
-    if (valueToggle) {
-      state.key_ = state.value;
-    } else {
-      if (!state.properties[state.key_]) {
-        // Create temp object to collect value, getter, and/or setter.
-        state.properties[state.key_] = {};
-      }
-      state.properties[state.key_][state.kind_] = state.value;
-    }
-  }
   var property = state.node['properties'][n];
-  if (property) {
-    if (valueToggle) {
-      state.n_ = n + 1;
-      stack.push({node: property['value']});
-    } else {
-      state.kind_ = property['kind'];
-      stack.push({node: property['key'], components: true});
-    }
-    state.valueToggle_ = !valueToggle;
+  if (!state.object_) {
+    // First execution.
+    state.object_ = this.createObject(this.OBJECT);
+    state.properties_ = Object.create(null);
   } else {
-    for (var key in state.properties) {
-      var kinds = state.properties[key];
-      if ('get' in kinds || 'set' in kinds) {
-        // Set a property with a getter or setter.
-        var descriptor = {
-          configurable: true,
-          enumerable: true,
-          get: kinds['get'],
-          set: kinds['set']
-        };
-        this.setProperty(state.object_, key, null, descriptor);
-      } else {
-        // Set a normal property with a value.
-        this.setProperty(state.object_, key, kinds['init']);
-      }
+    // Determine property name.
+    var key = property['key'];
+    if (key['type'] == 'Identifier') {
+      var propName = key['name'];
+    } else if (key['type'] == 'Literal') {
+      var propName = key['value'];
+    } else {
+      throw SyntaxError('Unknown object structure: ' + key['type']);
     }
-    stack.pop();
-    stack[stack.length - 1].value = state.object_;
+    // Set the property computed in the previous execution.
+    if (!state.properties_[propName]) {
+      // Create temp object to collect value, getter, and/or setter.
+      state.properties_[propName] = {};
+    }
+    state.properties_[propName][property['kind']] = state.value;
+    state.n_ = ++n;
+    property = state.node['properties'][n];
   }
+  if (property) {
+    stack.push({node: property['value']});
+    return;
+  }
+  for (var key in state.properties_) {
+    var kinds = state.properties_[key];
+    if ('get' in kinds || 'set' in kinds) {
+      // Set a property with a getter or setter.
+      var descriptor = {
+        configurable: true,
+        enumerable: true,
+        get: kinds['get'],
+        set: kinds['set']
+      };
+      this.setProperty(state.object_, key, null, descriptor);
+    } else {
+      // Set a normal property with a value.
+      this.setProperty(state.object_, key, kinds['init']);
+    }
+  }
+  stack.pop();
+  stack[stack.length - 1].value = state.object_;
 };
 
 Interpreter.prototype['stepProgram'] = function() {
@@ -3897,13 +3912,12 @@ Interpreter.prototype['stepVariableDeclaration'] = function() {
   var declarations = state.node['declarations'];
   var n = state.n_ || 0;
   var declarationNode = declarations[n];
-  if (state.value && declarationNode) {
+  if (state.init_ && declarationNode) {
     // This setValue call never needs to deal with calling a setter function.
     // Note that this is setting the init value, not defining the variable.
     // Variable definition is done when scope is populated.
-    this.setValue(this.createPrimitive(declarationNode['id']['name']),
-                  state.value);
-    state.value = null;
+    this.setValueToScope(declarationNode['id']['name'], state.value);
+    state.init_ = false;
     declarationNode = declarations[++n];
   }
   while (declarationNode) {
@@ -3911,6 +3925,7 @@ Interpreter.prototype['stepVariableDeclaration'] = function() {
     // been defined as undefined in populateScope_.
     if (declarationNode['init']) {
       state.n_ = n;
+      state.init_ = true;
       stack.push({node: declarationNode['init']});
       return;
     }
