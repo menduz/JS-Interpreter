@@ -17,15 +17,27 @@ jobs:
       - run:
           name: Run Tests
           command: |
+            echo "$TEST_GLOB: $CIRCLE_NODE_INDEX/$CIRCLE_NODE_TOTAL"
             node js-interpreter-tyrant/packages/js-interpreter-tyrant/bin/run.js \
               --retries 2 \
               --threads 2 --run --diff --hostPath bin/run.js \
               --splitInto $CIRCLE_NODE_TOTAL \
               --splitIndex $CIRCLE_NODE_INDEX \
-              $TEST_GLOB
+              "$TEST_GLOB"
+      - run:
+          name: Create junit test results directory
+          command: |
+            mkdir -p tyrant/test-reports/cucumber
+            mv tyrant/test-results-new.xml tyrant/test-reports/cucumber/junit.xml
+
+      - store_test_results:
+          path: tyrant/test-reports
 
       - store_artifacts:
           path: tyrant/test-results-new.json
+
+      - store_artifacts:
+          path: tyrant/test-reports
 
 
   checkout-install:
@@ -44,10 +56,10 @@ jobs:
           name: Install js-interpreter-tyrant
           command: |
             curl \
-              https://codeload.github.com/code-dot-org/js-interpreter-tyrant/zip/b75bd1b2e98324a07c212b03a17ab37ee702a932 \
+              https://codeload.github.com/code-dot-org/js-interpreter-tyrant/zip/faddc241053addd097fd8928cfc7dda787573846 \
               -o js-interpreter-tyrant.zip
             unzip -q js-interpreter-tyrant.zip
-            mv js-interpreter-tyrant-b75bd1b2e98324a07c212b03a17ab37ee702a932 js-interpreter-tyrant
+            mv js-interpreter-tyrant-faddc241053addd097fd8928cfc7dda787573846 js-interpreter-tyrant
             cd js-interpreter-tyrant/packages/js-interpreter-tyrant
             yarn install --prefer-offline
             yarn link
@@ -113,6 +125,14 @@ jobs:
               --splitInto $CIRCLE_NODE_TOTAL \
               --splitIndex $CIRCLE_NODE_INDEX
 
+      - run:
+          name: Create junit test results directory
+          command: |
+            mkdir -p tyrant/test-reports/cucumber
+            mv tyrant/test-results-new.xml tyrant/test-reports/cucumber/junit.xml
+      - store_test_results:
+          path: tyrant/test-reports
+
       - store_artifacts:
           path: tyrant/test-results-new.json
 
@@ -121,6 +141,6 @@ workflows:
   build-deploy:
     jobs:
       - checkout-install
-      - test:
-          requires:
-            - checkout-install
+#      - test:
+#          requires:
+#            - checkout-install
