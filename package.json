@@ -17,7 +17,9 @@
   "license": "Apache-2.0",
   "bin": "bin/run.js",
   "devDependencies": {
-    "@code-dot-org/js-interpreter-tyrant": "^0.2.0"
+    "@code-dot-org/js-interpreter-tyrant": "^0.2.0",
+    "node-fetch": "^1.7.3",
+    "xml": "^1.0.1"
   },
   "scripts": {
     "test": "js-interpreter-tyrant -rd --hostPath ./bin/run.js"
