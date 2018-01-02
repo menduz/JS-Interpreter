@@ -21,6 +21,7 @@ jobs:
             node js-interpreter-tyrant/packages/js-interpreter-tyrant/bin/run.js \
               --retries 2 \
               --threads 2 --run --diff --hostPath bin/run.js \
+              --timeout $TIMEOUT \
               --splitInto $CIRCLE_NODE_TOTAL \
               --splitIndex $CIRCLE_NODE_INDEX \
               "$TEST_GLOB"
