@@ -1,0 +1,153 @@
+version: 2
+defaults: &defaults
+  working_directory: ~/repo
+  docker:
+    - image: circleci/node:9
+
+jobs:
+  build:
+    <<: *defaults
+    # this is for the circle 1.0 API
+    parallelism: 10
+    steps:
+      - checkout
+      - restore_cache:
+          key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+          paths: .
+      - run:
+          name: Apply Patch
+          command: |
+            curl $PATCH | git apply -
+            git status
+      - run:
+          name: Run Tests
+          command: |
+            echo "$TEST_GLOB: $CIRCLE_NODE_INDEX/$CIRCLE_NODE_TOTAL"
+            node js-interpreter-tyrant/packages/js-interpreter-tyrant/bin/run.js \
+              --retries 2 \
+              --threads 2 --run --diff --hostPath bin/run.js \
+              --timeout $TIMEOUT \
+              --splitInto $CIRCLE_NODE_TOTAL \
+              --splitIndex $CIRCLE_NODE_INDEX \
+              "$TEST_GLOB"
+      - run:
+          name: Create junit test results directory
+          command: |
+            mkdir -p tyrant/test-reports/cucumber
+            mv tyrant/test-results-new.xml tyrant/test-reports/cucumber/junit.xml
+
+      - store_test_results:
+          path: tyrant/test-reports
+
+      - store_artifacts:
+          path: tyrant/test-results-new.json
+
+      - store_artifacts:
+          path: tyrant/test-reports
+
+
+  checkout-install:
+    <<: *defaults
+    steps:
+      - checkout
+
+      - restore_cache:
+          key: v1-cached-deps
+
+      - run:
+          name: Install Dependencies
+          command: yarn install --prefer-offline
+
+      - run:
+          name: Install js-interpreter-tyrant
+          command: |
+            curl \
+              https://codeload.github.com/code-dot-org/js-interpreter-tyrant/zip/70955ca962306abbc00a58038c0b4e2401f0de9c \
+              -o js-interpreter-tyrant.zip
+            unzip -q js-interpreter-tyrant.zip
+            mv js-interpreter-tyrant-70955ca962306abbc00a58038c0b4e2401f0de9c js-interpreter-tyrant
+            cd js-interpreter-tyrant/packages/js-interpreter-tyrant
+            yarn install --prefer-offline
+            yarn link
+            cd -
+            yarn link @code-dot-org/js-interpreter-tyrant
+
+      - run:
+          name: Install eshost
+          command: |
+            curl \
+              https://codeload.github.com/pcardune/eshost/zip/fc79c5552787d41ae8562aca4512200ef9554c05 \
+              -o eshost.zip
+            unzip -q eshost.zip
+            mv eshost-fc79c5552787d41ae8562aca4512200ef9554c05 eshost
+            cd eshost
+            yarn install --prefer-offline
+            yarn link
+            cd -
+            yarn link eshost
+            cd js-interpreter-tyrant/packages/js-interpreter-tyrant
+            yarn link eshost
+            cd -
+
+      - save_cache:
+          key: v1-cached-deps
+          paths: ./npm-packages-offline-cache
+
+      - restore_cache:
+          key: v1-test262
+
+      - run:
+          name: Download test262
+          command: |
+            test -d tyrant/test262 || curl \
+              https://codeload.github.com/tc39/test262/zip/89160ff5b7cb6d5f8938b4756829100110a14d5f \
+              -o test262.zip && \
+            unzip -q test262.zip && \
+            rm -rf tyrant/test262 && \
+            mv test262-89160ff5b7cb6d5f8938b4756829100110a14d5f tyrant/test262
+
+      - save_cache:
+          key: v1-test262
+          paths: ./tryant/test262
+
+      - save_cache:
+          key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+          paths: .
+
+  test:
+    <<: *defaults
+    parallelism: 10
+    steps:
+      - restore_cache:
+          key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+
+      - run:
+          name: Run Tests
+          command: |
+            node js-interpreter-tyrant/packages/js-interpreter-tyrant/bin/run.js \
+              --retries 2 \
+              --threads 2 --run --diff --hostPath bin/run.js \
+              --splitInto $CIRCLE_NODE_TOTAL \
+              --splitIndex $CIRCLE_NODE_INDEX
+
+      - run:
+          name: Create junit test results directory
+          command: |
+            mkdir -p tyrant/test-reports/cucumber
+            mv tyrant/test-results-new.xml tyrant/test-reports/cucumber/junit.xml
+      - store_test_results:
+          path: tyrant/test-reports
+
+      - store_artifacts:
+          path: tyrant/test-results-new.json
+      - store_artifacts:
+          path: tyrant/test-reports
+
+workflows:
+  version: 2
+  build-deploy:
+    jobs:
+      - checkout-install
+      - test:
+          requires:
+            - checkout-install
