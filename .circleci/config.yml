@@ -57,10 +57,10 @@ jobs:
           name: Install js-interpreter-tyrant
           command: |
             curl \
-              https://codeload.github.com/code-dot-org/js-interpreter-tyrant/zip/faddc241053addd097fd8928cfc7dda787573846 \
+              https://codeload.github.com/code-dot-org/js-interpreter-tyrant/zip/70955ca962306abbc00a58038c0b4e2401f0de9c \
               -o js-interpreter-tyrant.zip
             unzip -q js-interpreter-tyrant.zip
-            mv js-interpreter-tyrant-faddc241053addd097fd8928cfc7dda787573846 js-interpreter-tyrant
+            mv js-interpreter-tyrant-70955ca962306abbc00a58038c0b4e2401f0de9c js-interpreter-tyrant
             cd js-interpreter-tyrant/packages/js-interpreter-tyrant
             yarn install --prefer-offline
             yarn link
