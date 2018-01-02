@@ -2,3 +2,6 @@ node_modules
 *.komodoproject
 tyrant/test-results-new.json
 tyrant/test-results-new.verbose.json
+test262-es5-tests/
+
+test262.js

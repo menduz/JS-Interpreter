@@ -25,13 +25,13 @@
 
 function deserialize(json, interpreter) {
   function decodeValue(value) {
-    if (value && typeof value == 'object') {
+    if (value && typeof value === 'object') {
       var data;
       if ((data = value['#'])) {
        // Object reference: {'#': 42}
        value = objectList[data];
         if (!value) {
-          throw 'Object reference not found: ' + data;
+          throw ReferenceError('Object reference not found: ' + data);
         }
         return value;
       }
@@ -41,7 +41,7 @@ function deserialize(json, interpreter) {
       }
       if ((data = value['Value'])) {
         // Special value: {'Value': 'undefined'}
-        if (value['Value'] == 'undefined') {
+        if (value['Value'] === 'undefined') {
           return undefined;
         }
       }
@@ -50,11 +50,11 @@ function deserialize(json, interpreter) {
   }
   var stack = interpreter.stateStack;
   if (!Array.isArray(json)) {
-    throw 'Top-level JSON is not a list.';
+    throw TypeError('Top-level JSON is not a list.');
   }
   if (!stack.length) {
     // Require native functions to be present.
-    throw 'Interpreter must be initialized prior to deserialization.';
+    throw Error('Interpreter must be initialized prior to deserialization.');
   }
   // Find all native functions in existing interpreter.
   var objectList = [];
@@ -65,8 +65,6 @@ function deserialize(json, interpreter) {
       functionHash[objectList[i].id] = objectList[i];
     }
   }
-  // Get a handle on Acorn's node_t object.
-  var nodeProto = stack[0].node.constructor.prototype;
   // First pass: Create object stubs for every object.
   objectList = [];
   for (var i = 0; i < json.length; i++) {
@@ -79,10 +77,13 @@ function deserialize(json, interpreter) {
       case 'Object':
         obj = {};
         break;
+      case 'ScopeReference':
+        obj = Interpreter.SCOPE_REFERENCE;
+        break;
       case 'Function':
         obj = functionHash[jsonObj['id']];
         if (!obj) {
-          throw 'Function ID not found: ' + jsonObj['id'];
+          throw RangeError('Function ID not found: ' + jsonObj['id']);
         }
         break;
       case 'Array':
@@ -92,7 +93,7 @@ function deserialize(json, interpreter) {
       case 'Date':
         obj = new Date(jsonObj['data']);
         if (isNaN(obj)) {
-          throw 'Invalid date: ' + jsonObj['data'];
+          throw TypeError('Invalid date: ' + jsonObj['data']);
         }
         break;
       case 'RegExp':
@@ -101,16 +102,14 @@ function deserialize(json, interpreter) {
       case 'PseudoObject':
         obj = new Interpreter.Object(null);
         break;
-      case 'PseudoPrimitive':
-        // decodeValue is needed here for -0, NaN, Infinity, -Infinity.
-        // It is guaranteed not to have an object reference.
-        obj = interpreter.createPrimitive(decodeValue(jsonObj['data']));
+      case 'State':
+        obj = new Interpreter.State(undefined, undefined);
         break;
       case 'Node':
-        obj = Object.create(nodeProto);
+        obj = new interpreter.nodeConstructor();
         break;
       default:
-        throw 'Unknown type: ' + jsonObj['type'];
+        throw TypeError('Unknown type: ' + jsonObj['type']);
     }
     objectList[i] = obj;
   }
@@ -121,10 +120,17 @@ function deserialize(json, interpreter) {
     // Repopulate objects.
     var props = jsonObj['props'];
     if (props) {
+      var nonConfigurable = jsonObj['nonConfigurable'] || [];
+      var nonEnumerable = jsonObj['nonEnumerable'] || [];
+      var nonWritable = jsonObj['nonWritable'] || [];
       var names = Object.getOwnPropertyNames(props);
       for (var j = 0; j < names.length; j++) {
         var name = names[j];
-        obj[name] = decodeValue(props[name]);
+        Object.defineProperty(obj, name,
+            {configurable: nonConfigurable.indexOf(name) === -1,
+             enumerable: nonEnumerable.indexOf(name) === -1,
+             writable: nonWritable.indexOf(name) === -1,
+             value: decodeValue(props[name])});
       }
     }
     // Repopulate arrays.
@@ -137,59 +143,90 @@ function deserialize(json, interpreter) {
       }
     }
   }
-  // First object is the stack.
-  interpreter.stateStack = objectList[0];
+  // First object is the interpreter.
+  var root = objectList[0];
+  for (var prop in root) {
+    interpreter[prop] = root[prop];
+  }
 }
 
 function serialize(interpreter) {
   function encodeValue(value) {
-    if (value && (typeof value == 'object' || typeof value == 'function')) {
+    if (value && (typeof value === 'object' || typeof value === 'function')) {
       var ref = objectList.indexOf(value);
-      if (ref == -1) {
-        throw 'Object not found in table.';
+      if (ref === -1) {
+        throw RangeError('Object not found in table.');
       }
       return {'#': ref};
     }
     if (value === undefined) {
       return {'Value': 'undefined'};
     }
-    if (typeof value == 'number') {
-      if (value == Infinity) {
+    if (typeof value === 'number') {
+      if (value === Infinity) {
         return {'Number': 'Infinity'};
-      } else if (value == -Infinity) {
+      } else if (value === -Infinity) {
         return {'Number': '-Infinity'};
       } else if (isNaN(value)) {
         return {'Number': 'NaN'};
-      } else if (1 / value == -Infinity) {
+      } else if (1 / value === -Infinity) {
         return {'Number': '-0'};
       }
     }
     return value;
   }
-  var stack = interpreter.stateStack;
+  // Shallow-copy all properties of interest onto a root object.
+  var properties = [
+    'OBJECT', 'OBJECT_PROTO',
+    'FUNCTION', 'FUNCTION_PROTO',
+    'ARRAY', 'ARRAY_PROTO',
+    'REGEXP', 'REGEXP_PROTO',
+    'BOOLEAN',
+    'DATE',
+    'NUMBER',
+    'STRING',
+    'ERROR',
+    'EVAL_ERROR',
+    'RANGE_ERROR',
+    'REFERENCE_ERROR',
+    'SYNTAX_ERROR',
+    'TYPE_ERROR',
+    'URI_ERROR',
+    'global',
+    'stateStack'
+  ];
+  var root = Object.create(null);
+  for (var i = 0; i < properties.length; i++) {
+    root[properties[i]] = interpreter[properties[i]];
+  }
+
   // Find all objects.
   var objectList = [];
-  objectHunt_(stack, objectList);
-  // Get a handle on Acorn's node_t object.
-  var nodeProto = stack[0].node.constructor.prototype;
+  objectHunt_(root, objectList);
   // Serialize every object.
   var json = [];
   for (var i = 0; i < objectList.length; i++) {
     var jsonObj = Object.create(null);
     json.push(jsonObj);
     var obj = objectList[i];
+    // Uncomment this line for a debugging label.
+    //jsonObj['#'] = i;
     switch (Object.getPrototypeOf(obj)) {
       case null:
         jsonObj['type'] = 'Map';
         break;
       case Object.prototype:
-        jsonObj['type'] = 'Object';
+        if (obj === Interpreter.SCOPE_REFERENCE) {
+          jsonObj['type'] = 'ScopeReference';
+        } else {
+          jsonObj['type'] = 'Object';
+        }
         break;
       case Function.prototype:
         jsonObj['type'] = 'Function';
         jsonObj['id'] = obj.id;
         if (obj.id === undefined) {
-          throw 'Native function has no ID: ' + obj;
+          throw Error('Native function has no ID: ' + obj);
         }
         continue;  // No need to index properties.
       case Array.prototype:
@@ -211,24 +248,45 @@ function serialize(interpreter) {
       case Interpreter.Object.prototype:
         jsonObj['type'] = 'PseudoObject';
         break;
-      case Interpreter.Primitive.prototype:
-        jsonObj['type'] = 'PseudoPrimitive';
-        jsonObj['data'] = encodeValue(obj.data);
-        continue;  // No need to index properties.
-      case nodeProto:
+      case Interpreter.State.prototype:
+        jsonObj['type'] = 'State';
+        break;
+      case interpreter.nodeConstructor.prototype:
         jsonObj['type'] = 'Node';
         break;
       default:
-        throw 'Unknown type: ' + obj;
+        throw TypeError('Unknown type: ' + obj);
     }
     var props = Object.create(null);
+    var nonConfigurable = [];
+    var nonEnumerable = [];
+    var nonWritable = [];
     var names = Object.getOwnPropertyNames(obj);
     for (var j = 0; j < names.length; j++) {
       var name = names[j];
       props[name] = encodeValue(obj[name]);
+      var descriptor = Object.getOwnPropertyDescriptor(obj, name);
+      if (!descriptor.configurable) {
+        nonConfigurable.push(name);
+      }
+      if (!descriptor.enumerable) {
+        nonEnumerable.push(name);
+      }
+      if (!descriptor.writable) {
+        nonWritable.push(name);
+      }
     }
     if (names.length) {
       jsonObj['props'] = props;
+    }
+    if (nonConfigurable.length) {
+      jsonObj['nonConfigurable'] = nonConfigurable;
+    }
+    if (nonEnumerable.length) {
+      jsonObj['nonEnumerable'] = nonEnumerable;
+    }
+    if (nonWritable.length) {
+      jsonObj['nonWritable'] = nonWritable;
     }
   }
   return json;
@@ -236,12 +294,12 @@ function serialize(interpreter) {
 
 // Recursively search the stack to find all non-primitives.
 function objectHunt_(node, objectList) {
-  if (node && (typeof node == 'object' || typeof node == 'function')) {
+  if (node && (typeof node === 'object' || typeof node === 'function')) {
     if (objectList.indexOf(node) != -1) {
       return;
     }
     objectList.push(node);
-    if (typeof node == 'object') {  // Recurse.
+    if (typeof node === 'object') {  // Recurse.
       var names = Object.getOwnPropertyNames(node);
       for (var i = 0; i < names.length; i++) {
         objectHunt_(node[names[i]], objectList);
