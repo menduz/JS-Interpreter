@@ -11,11 +11,6 @@ jobs:
     parallelism: 10
     steps:
       - checkout
-      - run:
-          name: Apply Patch
-          command: |
-            echo $PATCH | git apply -
-            git status
 
       - restore_cache:
           key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
