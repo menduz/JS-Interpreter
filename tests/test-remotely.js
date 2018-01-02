@@ -65,9 +65,11 @@ async function run() {
   if (argv.circleToken) {
     fs.writeFileSync(TOKEN_CACHE_FILENAME, argv.circleToken);
   }
-  const revision = ChildProcess.execSync(`git rev-parse ${argv.revision}`)
+  const origin = `origin/${argv.branch}`;
+  const revision = ChildProcess.execSync(`git rev-parse ${origin}`)
     .toString()
     .trim();
+  const patch = ChildProcess.execSync(`git diff ${origin}`).toString();
   console.log('Starting Circle Run for', argv._.join(' '));
   const build = await fetchOnCircle(`/tree/${argv.branch}`, {
     method: 'POST',
@@ -76,6 +78,7 @@ async function run() {
       build_parameters: {
         TEST_GLOB: argv._.join(' '),
         TIMEOUT: argv.timeout,
+//        PATCH: patch,
       },
     },
   });
