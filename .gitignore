@@ -2,3 +2,5 @@ node_modules
 *.komodoproject
 tyrant/test-results-new.json
 tyrant/test-results-new.verbose.json
+tyrant/test262
+js-interpreter-tyrant

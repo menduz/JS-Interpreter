@@ -1,0 +1,4 @@
+<?xml version="1.0" ?>
+<testsuites>
+    <testsuite errors="0" failures="0" name="my test suite" tests="1">
+
