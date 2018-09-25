@@ -2,7 +2,7 @@ version: 2
 defaults: &defaults
   working_directory: ~/repo
   docker:
-    - image: circleci/node:9
+    - image: circleci/node@sha256:0b7118f2ee76e2b408a010a17b1a0a83837ac4cad92763d4a3c34fee13b518ba
 
 jobs:
   build:
@@ -44,7 +44,6 @@ jobs:
 
       - store_artifacts:
           path: tyrant/test-reports
-
 
   checkout-install:
     <<: *defaults
