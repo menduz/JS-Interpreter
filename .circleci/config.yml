@@ -8,7 +8,7 @@ jobs:
   build:
     <<: *defaults
     # this is for the circle 1.0 API
-    parallelism: 10
+    parallelism: 4
     steps:
       - checkout
       - restore_cache:
@@ -115,7 +115,7 @@ jobs:
 
   test:
     <<: *defaults
-    parallelism: 10
+    parallelism: 4
     steps:
       - restore_cache:
           key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
