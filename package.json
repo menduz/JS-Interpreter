@@ -18,7 +18,7 @@
   "bin": "bin/run.js",
   "devDependencies": {
     "@code-dot-org/js-interpreter-tyrant": "^0.2.0",
-    "node-fetch": "^1.7.3",
+    "node-fetch": "^2.6.1",
     "xml": "^1.0.1"
   },
   "scripts": {
